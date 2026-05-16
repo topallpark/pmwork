@@ -806,32 +806,280 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('open');
 }
 
-async function submitAddTask() {
-  const title = document.getElementById('new-task-title').value.trim();
-  if (!title) { alert('請輸入任務標題'); return; }
+// =============================================
+// 專案管理系統 - Google Apps Script 主程式
+// =============================================
+const LINE_TOKEN = 'YOUR_LINE_CHANNEL_ACCESS_TOKEN'; // 請填入
+const LINE_SECRET = 'YOUR_LINE_CHANNEL_SECRET'; // 請填入
+const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 
-  const task = {
-    id: generateId(),
-    projectId: document.getElementById('new-task-project').value,
-    title,
-    assignee: document.getElementById('new-task-assignee').value,
-    status: 'todo',
-    priority: document.getElementById('new-task-priority').value,
-    dueDate: document.getElementById('new-task-due').value,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+const SHEETS = {
+  TASKS: 'Tasks', PROJECTS: 'Projects', MEMBERS: 'Members',
+  COMMENTS: 'Comments', LOG: 'Log', NOTIFY: 'Notify',
+};
+
+// =============================================
+// 初始化 (同原本)
+// =============================================
+function initSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const schemas = {
+    Tasks: ['id', 'projectId', 'title', 'assignee', 'status', 'priority', 'dueDate', 'createdAt', 'updatedAt'],
+    Projects: ['id', 'name', 'description', 'startDate', 'endDate', 'status', 'color'],
+    Members: ['id', 'lineUserId', 'name', 'role', 'email'],
+    Comments: ['id', 'taskId', 'authorId', 'content', 'createdAt'],
+    Log: ['timestamp', 'userId', 'action', 'detail'],
+    Notify: ['memberId', 'notifyDaily', 'notifyAssign', 'notifyDue'],
   };
 
-  // 直接本地預覽（若要同步到 Sheets 需額外 POST API）
-  appData.tasks = appData.tasks || [];
-  appData.tasks.push(task);
-  appData.summary = computeSummary(appData.tasks);
-
-  renderSummary();
-  renderKanban();
-  closeModal('modal-add-task');
-  document.getElementById('new-task-title').value = '';
+  Object.entries(schemas).forEach(([name, cols]) => {
+    let sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+      sheet.getRange(1, 1, 1, cols.length).setValues([cols])
+           .setBackground('#4a4a8a').setFontColor('#ffffff').setFontWeight('bold');
+    }
+  });
 }
+
+// =============================================
+// POST API 與 Line Webhook 入口 (整合)
+// =============================================
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+
+    // 1. 處理來自前端網頁的 API 請求 (例如新增任務)
+    if (body.action) {
+      return handleWebApi(body);
+    }
+
+    // 2. 處理來自 Line 的 Webhook 事件
+    const events = body.events || [];
+    events.forEach(event => {
+      if (event.type === 'message' && event.message.type === 'text') {
+        handleTextMessage(event);
+      } else if (event.type === 'follow') {
+        handleFollow(event);
+      }
+    });
+
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok' }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// =============================================
+// 處理前端 Web API 請求
+// =============================================
+function handleWebApi(body) {
+  let result = { status: 'error', message: 'Unknown action' };
+
+  if (body.action === 'addTask') {
+    const task = body.data;
+    appendRow(SHEETS.TASKS, task);
+    result = { status: 'success', message: '任務新增成功', taskId: task.id };
+    
+    // 若有指派人，且不是新增者自己，發送 Line 通知給被指派人
+    if (task.assignee) {
+      notifyMemberByName(task.assignee, `📬 你有新的任務被指派！\n📌 ${task.title}\n📅 截止：${task.dueDate || '無'}\n🌐 請至網頁看板查看`);
+    }
+  }
+
+  // 預留其他 API (如 updateTaskStatus 等)
+
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =============================================
+// GET API (同原本)
+// =============================================
+function doGet(e) {
+  const action = e.parameter.action || '';
+  let result = {};
+
+  switch (action) {
+    case 'getDashboard':
+      result = getDashboardData();
+      break;
+    default:
+      result = { error: 'Unknown action' };
+  }
+  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// =============================================
+// 處理 Line 文字訊息 (大幅簡化，僅保留註冊與幫助)
+// =============================================
+function handleTextMessage(event) {
+  const userId = event.source.userId;
+  const text = event.message.text.trim();
+  const replyToken = event.replyToken;
+  const member = getMemberByLineId(userId);
+  const [cmd, ...args] = text.split(' ');
+
+  let replyMsg = '';
+
+  switch (cmd.toLowerCase()) {
+    case '/register':
+    case '註冊':
+      replyMsg = registerMember(userId, args.join(' '));
+      break;
+
+    case '/help':
+    case '幫助':
+    default:
+      if (!member) {
+        replyMsg = '你尚未註冊綁定！請輸入「/register 你的名字」來加入系統，以便接收任務通知。';
+      } else {
+        replyMsg = `嗨 ${member.name}！\n目前專案與任務管理已全面轉移至網頁端進行設定與指派。\n\n🌐 請前往系統看板操作：${getWebUrl()}\n\n機器人將會自動為您推播：\n1. 新任務指派通知\n2. 任務到期前提醒\n3. 逾期任務警告`;
+      }
+  }
+
+  if (replyMsg) {
+    replyToLine(replyToken, replyMsg);
+  }
+}
+
+function handleFollow(event) {
+  replyToLine(event.replyToken, '歡迎加入專案管理提醒機器人！🎉\n\n請先輸入以下指令完成綁定，才能接收提醒：\n/register 你的名字');
+}
+
+function registerMember(lineUserId, name) {
+  if (!name) return '請提供名字，例如：/register 王小明';
+  const existing = getMemberByLineId(lineUserId);
+  if (existing) return `你已經以「${existing.name}」身份註冊了！`;
+  
+  const newMember = {
+    id: generateId(), lineUserId, name: name.trim(),
+    role: 'member', email: ''
+  };
+  appendRow(SHEETS.MEMBERS, newMember);
+  return `✅ 註冊成功！歡迎 ${name.trim()}。\n後續若有您的任務即將到期，機器人將會主動提醒您。`;
+}
+
+// =============================================
+// 排程：即將到期提醒 (逾期前提醒 - 例如到期前 1 天)
+// =============================================
+function scheduledDueReminder() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+  const tasks = getAllRows(SHEETS.TASKS).filter(t => t.dueDate === tomorrowStr && t.status !== 'done');
+  if (tasks.length === 0) return;
+
+  const byAssignee = {};
+  tasks.forEach(t => {
+    if (t.assignee) {
+      if (!byAssignee[t.assignee]) byAssignee[t.assignee] = [];
+      byAssignee[t.assignee].push(t);
+    }
+  });
+
+  Object.entries(byAssignee).forEach(([name, dueTasks]) => {
+    let msg = `⏰ 【任務即將到期提醒】\n嗨 ${name}，您有任務將在明天截止：\n\n`;
+    dueTasks.forEach(t => { msg += `📌 ${t.title}\n`; });
+    msg += `\n請盡速至網頁版確認進度！`;
+    notifyMemberByName(name, msg);
+  });
+}
+
+// =============================================
+// 排程：逾期警示 (同原本)
+// =============================================
+function scheduledOverdueAlert() {
+  const today = new Date().toISOString().split('T')[0];
+  const tasks = getAllRows(SHEETS.TASKS).filter(t => t.dueDate && t.dueDate < today && t.status !== 'done');
+  if (tasks.length === 0) return;
+
+  const byAssignee = {};
+  tasks.forEach(t => {
+    if (t.assignee) {
+      if (!byAssignee[t.assignee]) byAssignee[t.assignee] = [];
+      byAssignee[t.assignee].push(t);
+    }
+  });
+
+  Object.entries(byAssignee).forEach(([name, overdueTasks]) => {
+    let msg = `⚠️ 【逾期任務警告】\n${name}，您有任務已經逾期：\n\n`;
+    overdueTasks.forEach(t => { msg += `❌ ${t.title} (原定 ${t.dueDate})\n`; });
+    notifyMemberByName(name, msg);
+  });
+}
+
+// =============================================
+// 設定排程觸發器 (請手動在 GAS 編輯器執行一次此函數)
+// =============================================
+function setupTriggers() {
+  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+
+  // 每天早上 9:00 發送「即將到期」提醒
+  ScriptApp.newTrigger('scheduledDueReminder').timeBased().atHour(9).everyDays(1).create();
+  
+  // 每天下午 17:00 發送「已逾期」警告
+  ScriptApp.newTrigger('scheduledOverdueAlert').timeBased().atHour(17).everyDays(1).create();
+
+  Logger.log('排程觸發器設定完成！');
+}
+
+// =============================================
+// 資料獲取與工具函式 (省略修改，沿用原版)
+// =============================================
+function getDashboardData() { /* 同你原本的邏輯 */ 
+  const tasks = getAllRows(SHEETS.TASKS);
+  const projects = getAllRows(SHEETS.PROJECTS);
+  const members = getAllRows(SHEETS.MEMBERS);
+  const today = new Date().toISOString().split('T')[0];
+  return {
+    summary: {
+      total: tasks.length, done: tasks.filter(t => t.status === 'done').length,
+      doing: tasks.filter(t => t.status === 'doing').length, todo: tasks.filter(t => t.status === 'todo').length,
+      overdue: tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'done').length,
+    }, tasks, projects, members,
+    memberStats: members.map(m => {
+      const myTasks = tasks.filter(t => t.assignee === m.name);
+      return {
+        name: m.name, total: myTasks.length, done: myTasks.filter(t => t.status === 'done').length,
+        doing: myTasks.filter(t => t.status === 'doing').length, todo: myTasks.filter(t => t.status === 'todo').length,
+      };
+    }),
+  };
+}
+function replyToLine(replyToken, message) { /* 同原本 */ 
+  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', { method: 'post', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LINE_TOKEN }, payload: JSON.stringify({ replyToken, messages: [{ type: 'text', text: message }] }), muteHttpExceptions: true });
+}
+function pushMessage(lineUserId, message) { /* 同原本 */ 
+  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', { method: 'post', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LINE_TOKEN }, payload: JSON.stringify({ to: lineUserId, messages: [{ type: 'text', text: message }] }), muteHttpExceptions: true });
+}
+function notifyMemberByName(name, message) { 
+  const member = getAllRows(SHEETS.MEMBERS).find(m => m.name === name);
+  if (member && member.lineUserId) pushMessage(member.lineUserId, message);
+}
+function getSheet(name) { return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name); }
+function getAllRows(sheetName) {
+  const sheet = getSheet(sheetName);
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+  const headers = data[0];
+  return data.slice(1).map(row => {
+    const obj = {}; headers.forEach((h, i) => obj[h] = row[i] || ''); return obj;
+  }).filter(row => row[headers[0]] !== ''); 
+}
+function appendRow(sheetName, obj) {
+  const sheet = getSheet(sheetName);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const row = headers.map(h => obj[h] || '');
+  sheet.appendRow(row);
+}
+function getMemberByLineId(lineUserId) { return getAllRows(SHEETS.MEMBERS).find(m => m.lineUserId === lineUserId) || null; }
+function generateId() { return Utilities.getUuid().replace(/-/g, '').slice(0, 12); }
+function getWebUrl() { return 'https://topallpark.github.io/pmwork/'; }
 
 function openTaskDetail(id) {
   const task = (appData.tasks || []).find(t => t.id === id);
