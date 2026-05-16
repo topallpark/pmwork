@@ -1,1 +1,882 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>專案管理看板</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #232635;
+      --border: #2e3248;
+      --text: #e8eaf0;
+      --text2: #9499b0;
+      --text3: #5c6080;
+      --accent: #6c63ff;
+      --accent2: #8b85ff;
+      --green: #2ecc71;
+      --yellow: #f39c12;
+      --red: #e74c3c;
+      --blue: #3498db;
+      --purple: #9b59b6;
+      --todo-bg: #1e2132;
+      --doing-bg: #1a2332;
+      --done-bg: #1a2a1e;
+      --radius: 10px;
+      --shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
 
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      height: 60px;
+      gap: 20px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-logo {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent2);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .header-logo span { font-size: 22px; }
+    .header-nav { display: flex; gap: 4px; margin-left: 16px; }
+    .nav-btn {
+      padding: 6px 14px;
+      border: none;
+      background: transparent;
+      color: var(--text2);
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      transition: all .15s;
+    }
+    .nav-btn:hover { background: var(--bg3); color: var(--text); }
+    .nav-btn.active { background: var(--accent); color: #fff; }
+    .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .refresh-btn {
+      padding: 6px 14px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      transition: all .15s;
+    }
+    .refresh-btn:hover { border-color: var(--accent); color: var(--accent2); }
+    .gas-url-badge {
+      font-size: 11px;
+      color: var(--text3);
+      font-family: 'JetBrains Mono', monospace;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Main Layout ── */
+    .main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Summary Cards ── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .summary-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .summary-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .summary-card.total::before { background: var(--accent); }
+    .summary-card.done::before { background: var(--green); }
+    .summary-card.doing::before { background: var(--blue); }
+    .summary-card.todo::before { background: var(--yellow); }
+    .summary-card.overdue::before { background: var(--red); }
+    .summary-num {
+      font-size: 36px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1;
+    }
+    .summary-card.total .summary-num { color: var(--accent2); }
+    .summary-card.done .summary-num { color: var(--green); }
+    .summary-card.doing .summary-num { color: var(--blue); }
+    .summary-card.todo .summary-num { color: var(--yellow); }
+    .summary-card.overdue .summary-num { color: var(--red); }
+    .summary-label {
+      font-size: 13px;
+      color: var(--text2);
+      margin-top: 6px;
+    }
+
+    /* ── Kanban Board ── */
+    .board-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+    .board-title {
+      font-size: 18px;
+      
+      font-weight: 700;
+      color: var(--text);
+    }
+    .filter-bar { display: flex; gap: 8px; }
+    .filter-select {
+      padding: 6px 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .filter-select:focus { outline: none; border-color: var(--accent); }
+
+    .kanban {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+    }
+    .kanban-col {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .kanban-col-header {
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .kanban-col.todo .kanban-col-header { color: var(--yellow); background: #241e0f; }
+    .kanban-col.doing .kanban-col-header { color: var(--blue); background: #0f1f2e; }
+    .kanban-col.done .kanban-col-header { color: var(--green); background: #0f2218; }
+    .col-count {
+      background: rgba(255,255,255,.1);
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 11px;
+    }
+    .kanban-tasks { padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 200px; }
+
+    /* ── Task Card ── */
+    .task-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: all .15s;
+      position: relative;
+    }
+    .task-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow);
+    }
+    .task-card-title {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+    .task-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .tag {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    .tag.priority-high { background: rgba(231,76,60,.15); color: #e74c3c; border: 1px solid rgba(231,76,60,.3); }
+    .tag.priority-medium { background: rgba(243,156,18,.15); color: #f39c12; border: 1px solid rgba(243,156,18,.3); }
+    .tag.priority-low { background: rgba(46,204,113,.15); color: #2ecc71; border: 1px solid rgba(46,204,113,.3); }
+    .tag.assignee { background: rgba(108,99,255,.15); color: var(--accent2); border: 1px solid rgba(108,99,255,.3); }
+    .tag.due { background: rgba(255,255,255,.06); color: var(--text2); }
+    .tag.due.overdue { background: rgba(231,76,60,.1); color: #e74c3c; }
+    .task-id {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text3);
+    }
+
+    /* ── Members Page ── */
+    .members-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .member-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .member-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .member-name { font-size: 16px; font-weight: 700; }
+    .member-role { font-size: 12px; color: var(--text2); margin-bottom: 14px; }
+    .member-stats { display: flex; gap: 12px; }
+    .stat-item { text-align: center; }
+    .stat-num { font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .stat-label { font-size: 11px; color: var(--text3); }
+    .member-progress {
+      margin-top: 14px;
+      background: var(--bg3);
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .member-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--green));
+      border-radius: 4px;
+      transition: width .4s;
+    }
+
+    /* ── Projects Page ── */
+    .projects-list { display: flex; flex-direction: column; gap: 14px; }
+    .project-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 22px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .project-color-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .project-info { flex: 1; }
+    .project-name { font-size: 16px; font-weight: 700; }
+    .project-desc { font-size: 13px; color: var(--text2); margin-top: 2px; }
+    .project-dates { font-size: 12px; color: var(--text3); margin-top: 6px; }
+    .project-prog-wrap { min-width: 160px; }
+    .project-prog-label { font-size: 12px; color: var(--text2); margin-bottom: 6px; display: flex; justify-content: space-between; }
+    .project-prog-bar-bg { background: var(--bg3); border-radius: 4px; height: 8px; overflow: hidden; }
+    .project-prog-bar { height: 100%; border-radius: 4px; background: var(--green); transition: width .4s; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.6);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px;
+      width: 90%;
+      max-width: 460px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.6);
+    }
+    .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 18px; }
+    .modal-field { margin-bottom: 14px; }
+    .modal-field label { font-size: 12px; color: var(--text2); margin-bottom: 6px; display: block; }
+    .modal-field input, .modal-field select, .modal-field textarea {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color .15s;
+    }
+    .modal-field input:focus, .modal-field select:focus, .modal-field textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .modal-field textarea { resize: vertical; min-height: 80px; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+    .btn-primary {
+      padding: 8px 20px;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn-primary:hover { background: var(--accent2); }
+    .btn-secondary {
+      padding: 8px 20px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text2);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent2); }
+
+    /* ── Loading ── */
+    .loading-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px;
+      color: var(--text2);
+      gap: 16px;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Setup Banner ── */
+    .setup-banner {
+      background: linear-gradient(135deg, #1a1d3a, #1f1530);
+      border: 1px solid rgba(108,99,255,.3);
+      border-radius: var(--radius);
+      padding: 24px 28px;
+      margin-bottom: 28px;
+    }
+    .setup-banner h2 { font-size: 16px; font-weight: 700; color: var(--accent2); margin-bottom: 10px; }
+    .setup-banner p { font-size: 13px; color: var(--text2); margin-bottom: 14px; line-height: 1.7; }
+    .setup-input-row { display: flex; gap: 10px; }
+    .setup-input {
+      flex: 1;
+      padding: 8px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+    }
+    .setup-input:focus { outline: none; border-color: var(--accent); }
+    .setup-btn {
+      padding: 8px 18px;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .kanban { grid-template-columns: 1fr; }
+      .header-nav { display: none; }
+      .summary-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-logo">
+    <span>📋</span> ProjectHub
+  </div>
+  <nav class="header-nav">
+    <button class="nav-btn active" onclick="showPage('kanban', this)">看板</button>
+    <button class="nav-btn" onclick="showPage('members', this)">成員</button>
+    <button class="nav-btn" onclick="showPage('projects', this)">專案</button>
+  </nav>
+  <div class="header-right">
+    <span class="gas-url-badge" id="gas-url-display">⚙️ 尚未設定 GAS 網址</span>
+    <button class="refresh-btn" onclick="loadData()">🔄 重新整理</button>
+  </div>
+</header>
+
+<!-- Main -->
+<main class="main">
+
+  <!-- Setup Banner -->
+  <div class="setup-banner" id="setup-banner">
+    <h2>⚙️ 第一步：設定 Google Apps Script 網址</h2>
+    <p>
+      請將你部署的 GAS Web App 網址貼入下方，系統會自動從 Google Sheets 讀取資料。<br>
+      設定後會儲存在瀏覽器，下次不需重新設定。
+    </p>
+    <div class="setup-input-row">
+      <input class="setup-input" id="gas-url-input" type="url"
+        placeholder="https://script.google.com/macros/s/YOUR_ID/exec"
+        value="">
+      <button class="setup-btn" onclick="saveGasUrl()">儲存並載入</button>
+    </div>
+  </div>
+
+  <!-- Page: Kanban -->
+  <div class="page active" id="page-kanban">
+    <!-- Summary -->
+    <div class="summary-grid" id="summary-grid">
+      <div class="summary-card total"><div class="summary-num" id="sum-total">—</div><div class="summary-label">總任務</div></div>
+      <div class="summary-card done"><div class="summary-num" id="sum-done">—</div><div class="summary-label">已完成</div></div>
+      <div class="summary-card doing"><div class="summary-num" id="sum-doing">—</div><div class="summary-label">進行中</div></div>
+      <div class="summary-card todo"><div class="summary-num" id="sum-todo">—</div><div class="summary-label">待辦</div></div>
+      <div class="summary-card overdue"><div class="summary-num" id="sum-overdue">—</div><div class="summary-label">已逾期</div></div>
+    </div>
+
+    <!-- Board header -->
+    <div class="board-header">
+      <div class="board-title">任務看板</div>
+      <div class="filter-bar">
+        <select class="filter-select" id="filter-assignee" onchange="renderKanban()">
+          <option value="">全部成員</option>
+        </select>
+        <select class="filter-select" id="filter-priority" onchange="renderKanban()">
+          <option value="">全部優先</option>
+          <option value="high">高優先</option>
+          <option value="medium">中優先</option>
+          <option value="low">低優先</option>
+        </select>
+        <button class="btn-primary" onclick="openAddTaskModal()">+ 新增任務</button>
+      </div>
+    </div>
+
+    <!-- Kanban columns -->
+    <div class="kanban">
+      <div class="kanban-col todo">
+        <div class="kanban-col-header">⬜ 待辦 <span class="col-count" id="count-todo">0</span></div>
+        <div class="kanban-tasks" id="col-todo"></div>
+      </div>
+      <div class="kanban-col doing">
+        <div class="kanban-col-header">🔄 進行中 <span class="col-count" id="count-doing">0</span></div>
+        <div class="kanban-tasks" id="col-doing"></div>
+      </div>
+      <div class="kanban-col done">
+        <div class="kanban-col-header">✅ 完成 <span class="col-count" id="count-done">0</span></div>
+        <div class="kanban-tasks" id="col-done"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page: Members -->
+  <div class="page" id="page-members">
+    <div class="board-header">
+      <div class="board-title">團隊成員</div>
+    </div>
+    <div class="members-grid" id="members-grid">
+      <div class="loading-wrap"><div class="spinner"></div><span>載入中...</span></div>
+    </div>
+  </div>
+
+  <!-- Page: Projects -->
+  <div class="page" id="page-projects">
+    <div class="board-header">
+      <div class="board-title">專案列表</div>
+    </div>
+    <div class="projects-list" id="projects-list">
+      <div class="loading-wrap"><div class="spinner"></div><span>載入中...</span></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Add Task Modal -->
+<div class="modal-overlay" id="modal-add-task">
+  <div class="modal">
+    <div class="modal-title">➕ 新增任務</div>
+    <div class="modal-field">
+      <label>任務標題 *</label>
+      <input type="text" id="new-task-title" placeholder="輸入任務標題">
+    </div>
+    <div class="modal-field">
+      <label>指派成員</label>
+      <select id="new-task-assignee">
+        <option value="">未指派</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>優先級</label>
+      <select id="new-task-priority">
+        <option value="medium">中</option>
+        <option value="high">高</option>
+        <option value="low">低</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>截止日期</label>
+      <input type="date" id="new-task-due">
+    </div>
+    <div class="modal-field">
+      <label>所屬專案</label>
+      <select id="new-task-project">
+        <option value="">無</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('modal-add-task')">取消</button>
+      <button class="btn-primary" onclick="submitAddTask()">新增任務</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// =============================================
+// 設定
+// =============================================
+const STORAGE_KEY = 'projecthub_gas_url';
+let GAS_URL = localStorage.getItem(STORAGE_KEY) || '';
+let appData = { tasks: [], projects: [], members: [], summary: {}, memberStats: [] };
+const today = new Date().toISOString().split('T')[0];
+
+// =============================================
+// 初始化
+// =============================================
+document.addEventListener('DOMContentLoaded', () => {
+  if (GAS_URL) {
+    document.getElementById('gas-url-input').value = GAS_URL;
+    document.getElementById('gas-url-display').textContent = '🟢 已連線';
+    document.getElementById('setup-banner').style.display = 'none';
+    loadData();
+  }
+});
+
+function saveGasUrl() {
+  const url = document.getElementById('gas-url-input').value.trim();
+  if (!url) { alert('請輸入 GAS 網址'); return; }
+  GAS_URL = url;
+  localStorage.setItem(STORAGE_KEY, GAS_URL);
+  document.getElementById('gas-url-display').textContent = '🟢 已連線';
+  document.getElementById('setup-banner').style.display = 'none';
+  loadData();
+}
+
+// =============================================
+// 資料載入
+// =============================================
+async function loadData() {
+  if (!GAS_URL) return;
+  try {
+    const res = await fetch(`${GAS_URL}?action=getDashboard`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    appData = data;
+    renderAll();
+  } catch (err) {
+    console.error('載入失敗:', err);
+    document.getElementById('gas-url-display').textContent = '🔴 連線失敗';
+  }
+}
+
+function renderAll() {
+  renderSummary();
+  renderKanban();
+  renderMembers();
+  renderProjects();
+  populateFilters();
+}
+
+// =============================================
+// 摘要卡片
+// =============================================
+function renderSummary() {
+  const s = appData.summary || {};
+  document.getElementById('sum-total').textContent = s.total ?? 0;
+  document.getElementById('sum-done').textContent = s.done ?? 0;
+  document.getElementById('sum-doing').textContent = s.doing ?? 0;
+  document.getElementById('sum-todo').textContent = s.todo ?? 0;
+  document.getElementById('sum-overdue').textContent = s.overdue ?? 0;
+}
+
+// =============================================
+// 看板
+// =============================================
+function renderKanban() {
+  const assigneeFilter = document.getElementById('filter-assignee').value;
+  const priorityFilter = document.getElementById('filter-priority').value;
+
+  let tasks = appData.tasks || [];
+  if (assigneeFilter) tasks = tasks.filter(t => t.assignee === assigneeFilter);
+  if (priorityFilter) tasks = tasks.filter(t => t.priority === priorityFilter);
+
+  const cols = { todo: [], doing: [], done: [] };
+  tasks.forEach(t => {
+    if (cols[t.status]) cols[t.status].push(t);
+  });
+
+  ['todo', 'doing', 'done'].forEach(status => {
+    document.getElementById(`col-${status}`).innerHTML = cols[status].length
+      ? cols[status].map(taskCard).join('')
+      : `<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px">暫無任務</div>`;
+    document.getElementById(`count-${status}`).textContent = cols[status].length;
+  });
+}
+
+function taskCard(t) {
+  const isOverdue = t.dueDate && t.dueDate < today && t.status !== 'done';
+  const priorityLabel = { high: '高', medium: '中', low: '低' }[t.priority] || '';
+  const dueLabel = t.dueDate
+    ? `<span class="tag due ${isOverdue ? 'overdue' : ''}">${isOverdue ? '⚠️ ' : '📅 '}${t.dueDate}</span>`
+    : '';
+  return `
+    <div class="task-card" onclick="openTaskDetail('${t.id}')">
+      <div class="task-id">#${(t.id || '').slice(-6)}</div>
+      <div class="task-card-title">${escHtml(t.title)}</div>
+      <div class="task-card-meta">
+        ${t.priority ? `<span class="tag priority-${t.priority}">${priorityLabel}</span>` : ''}
+        ${t.assignee ? `<span class="tag assignee">👤 ${escHtml(t.assignee)}</span>` : ''}
+        ${dueLabel}
+      </div>
+    </div>`;
+}
+
+// =============================================
+// 成員
+// =============================================
+function renderMembers() {
+  const stats = appData.memberStats || [];
+  if (!stats.length) {
+    document.getElementById('members-grid').innerHTML =
+      '<div class="loading-wrap"><span>暫無成員資料</span></div>';
+    return;
+  }
+
+  document.getElementById('members-grid').innerHTML = stats.map(m => {
+    const pct = m.total ? Math.round(m.done / m.total * 100) : 0;
+    const initial = (m.name || '?')[0].toUpperCase();
+    const colors = ['#6c63ff', '#2ecc71', '#3498db', '#e67e22', '#9b59b6', '#e74c3c', '#1abc9c', '#f39c12', '#e91e63', '#00bcd4'];
+    const color = colors[(m.name || '').charCodeAt(0) % colors.length];
+    return `
+      <div class="member-card">
+        <div class="member-avatar" style="background:${color}">${initial}</div>
+        <div class="member-name">${escHtml(m.name)}</div>
+        <div class="member-role">完成率 ${pct}%</div>
+        <div class="member-stats">
+          <div class="stat-item"><div class="stat-num" style="color:var(--green)">${m.done}</div><div class="stat-label">完成</div></div>
+          <div class="stat-item"><div class="stat-num" style="color:var(--blue)">${m.doing}</div><div class="stat-label">進行</div></div>
+          <div class="stat-item"><div class="stat-num" style="color:var(--yellow)">${m.todo}</div><div class="stat-label">待辦</div></div>
+          <div class="stat-item"><div class="stat-num" style="color:var(--text2)">${m.total}</div><div class="stat-label">總計</div></div>
+        </div>
+        <div class="member-progress">
+          <div class="member-progress-bar" style="width:${pct}%"></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// =============================================
+// 專案
+// =============================================
+function renderProjects() {
+  const projects = appData.projects || [];
+  const tasks = appData.tasks || [];
+  if (!projects.length) {
+    document.getElementById('projects-list').innerHTML =
+      '<div class="loading-wrap"><span>暫無專案資料</span></div>';
+    return;
+  }
+
+  document.getElementById('projects-list').innerHTML = projects.map(p => {
+    const pt = tasks.filter(t => t.projectId === p.id);
+    const done = pt.filter(t => t.status === 'done').length;
+    const pct = pt.length ? Math.round(done / pt.length * 100) : 0;
+    const color = p.color || '#6c63ff';
+    const statusLabel = { active: '進行中', paused: '暫停', completed: '完成', archived: '封存' }[p.status] || p.status;
+    return `
+      <div class="project-card">
+        <div class="project-color-dot" style="background:${color}"></div>
+        <div class="project-info">
+          <div class="project-name">${escHtml(p.name)}</div>
+          ${p.description ? `<div class="project-desc">${escHtml(p.description)}</div>` : ''}
+          <div class="project-dates">${p.startDate || '—'} → ${p.endDate || '—'} ｜ ${statusLabel}</div>
+        </div>
+        <div class="project-prog-wrap">
+          <div class="project-prog-label">
+            <span>任務進度</span>
+            <span>${done} / ${pt.length} (${pct}%)</span>
+          </div>
+          <div class="project-prog-bar-bg">
+            <div class="project-prog-bar" style="width:${pct}%"></div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// =============================================
+// 填充篩選器
+// =============================================
+function populateFilters() {
+  const members = appData.members || [];
+  const sel = document.getElementById('filter-assignee');
+  sel.innerHTML = '<option value="">全部成員</option>' +
+    members.map(m => `<option value="${escHtml(m.name)}">${escHtml(m.name)}</option>`).join('');
+
+  // 新增任務 modal 的成員下拉
+  const assignSel = document.getElementById('new-task-assignee');
+  assignSel.innerHTML = '<option value="">未指派</option>' +
+    members.map(m => `<option value="${escHtml(m.name)}">${escHtml(m.name)}</option>`).join('');
+
+  // 專案下拉
+  const projSel = document.getElementById('new-task-project');
+  const projects = appData.projects || [];
+  projSel.innerHTML = '<option value="">無</option>' +
+    projects.map(p => `<option value="${p.id}">${escHtml(p.name)}</option>`).join('');
+}
+
+// =============================================
+// Modal 操作
+// =============================================
+function openAddTaskModal() {
+  document.getElementById('modal-add-task').classList.add('open');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+async function submitAddTask() {
+  const title = document.getElementById('new-task-title').value.trim();
+  if (!title) { alert('請輸入任務標題'); return; }
+
+  const task = {
+    id: generateId(),
+    projectId: document.getElementById('new-task-project').value,
+    title,
+    assignee: document.getElementById('new-task-assignee').value,
+    status: 'todo',
+    priority: document.getElementById('new-task-priority').value,
+    dueDate: document.getElementById('new-task-due').value,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  // 直接本地預覽（若要同步到 Sheets 需額外 POST API）
+  appData.tasks = appData.tasks || [];
+  appData.tasks.push(task);
+  appData.summary = computeSummary(appData.tasks);
+
+  renderSummary();
+  renderKanban();
+  closeModal('modal-add-task');
+  document.getElementById('new-task-title').value = '';
+}
+
+function openTaskDetail(id) {
+  const task = (appData.tasks || []).find(t => t.id === id);
+  if (!task) return;
+  const statusLabel = { todo: '待辦', doing: '進行中', done: '完成' }[task.status] || task.status;
+  alert(`📌 ${task.title}\n👤 ${task.assignee || '未指派'}\n📊 ${statusLabel}\n📅 ${task.dueDate || '無截止日'}\n🔑 ID: ${task.id}`);
+}
+
+// =============================================
+// 頁面切換
+// =============================================
+function showPage(page, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`page-${page}`).classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+// =============================================
+// 工具函式
+// =============================================
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function computeSummary(tasks) {
+  return {
+    total: tasks.length,
+    done: tasks.filter(t => t.status === 'done').length,
+    doing: tasks.filter(t => t.status === 'doing').length,
+    todo: tasks.filter(t => t.status === 'todo').length,
+    overdue: tasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'done').length,
+  };
+}
+
+// 點擊 overlay 關閉 modal
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => {
+    if (e.target === el) el.classList.remove('open');
+  });
+});
+</script>
+</body>
+</html>
