@@ -517,7 +517,59 @@
       <div class="summary-card todo"><div class="summary-num" id="sum-todo">—</div><div class="summary-label">待辦</div></div>
       <div class="summary-card overdue"><div class="summary-num" id="sum-overdue">—</div><div class="summary-label">已逾期</div></div>
     </div>
-
+<div class="modal-overlay" id="modal-task-detail">
+  <div class="modal task-detail-modal">
+    <div class="td-header">
+      <input type="text" id="td-title" class="td-title-input" placeholder="任務標題">
+      <input type="hidden" id="td-task-id">
+    </div>
+    <div class="td-body">
+      <div class="td-main">
+        <div class="td-section-title">📝 任務描述</div>
+        <textarea id="td-desc" class="td-desc-textarea" placeholder="輸入任務描述... 例如：5/3至5/4喬木修剪工程管制範圍、巡邏自動補單邏輯等"></textarea>
+        
+        <div class="td-section-title">💬 活動與留言</div>
+        <div class="comment-list" id="td-comments-list">
+          </div>
+        
+        <div class="comment-input-area">
+          <input type="text" id="td-new-comment" placeholder="輸入留言...">
+          <button onclick="submitComment()">留言</button>
+        </div>
+      </div>
+      
+      <div class="td-sidebar">
+        <div class="td-field">
+          <div class="td-section-title">狀態</div>
+          <select id="td-status">
+            <option value="todo">⬜ 待辦</option>
+            <option value="doing">🔄 進行中</option>
+            <option value="done">✅ 完成</option>
+          </select>
+        </div>
+        <div class="td-field">
+          <div class="td-section-title">指派給</div>
+          <select id="td-assignee"></select>
+        </div>
+        <div class="td-field">
+          <div class="td-section-title">優先級</div>
+          <select id="td-priority">
+            <option value="high">🔴 高</option>
+            <option value="medium">🟡 中</option>
+            <option value="low">🟢 低</option>
+          </select>
+        </div>
+        <div class="td-field">
+          <div class="td-section-title">截止日期</div>
+          <input type="date" id="td-due">
+        </div>
+        
+        <button class="btn-primary" style="width: 100%; margin-top: 20px;" onclick="saveTaskDetails()">儲存變更</button>
+        <button class="btn-secondary" style="width: 100%; margin-top: 10px;" onclick="closeModal('modal-task-detail')">關閉</button>
+      </div>
+    </div>
+  </div>
+</div>
     <div class="board-header">
       <div class="board-title">任務看板</div>
       <div class="filter-bar">
@@ -948,11 +1000,122 @@ async function submitApiData(actionType) {
   }
 }
 
+// 開啟任務詳細面板
 function openTaskDetail(id) {
   const task = (appData.tasks || []).find(t => t.id === id);
   if (!task) return;
-  const statusLabel = { todo: '待辦', doing: '進行中', done: '完成' }[task.status] || task.status;
-  alert(`📌 ${task.title}\n👤 指派：${task.assignee || '未指派'}\n📊 狀態：${statusLabel}\n📅 截止日：${task.dueDate || '無'}\n🔑 ID: ${task.id}`);
+  
+  // 填充側邊欄下拉選單
+  const members = appData.members || [];
+  const assignSel = document.getElementById('td-assignee');
+  assignSel.innerHTML = '<option value="">未指派</option>' + 
+    members.map(m => `<option value="${escHtml(m.name)}">${escHtml(m.name)}</option>`).join('');
+
+  // 載入任務資料
+  document.getElementById('td-task-id').value = task.id;
+  document.getElementById('td-title').value = task.title;
+  document.getElementById('td-desc').value = task.description || '';
+  document.getElementById('td-status').value = task.status || 'todo';
+  document.getElementById('td-assignee').value = task.assignee || '';
+  document.getElementById('td-priority').value = task.priority || 'medium';
+  document.getElementById('td-due').value = task.dueDate || '';
+
+  // 載入留言
+  renderComments(task.id);
+
+  openModal('modal-task-detail');
+}
+
+// 渲染該任務的留言區塊
+function renderComments(taskId) {
+  const comments = (appData.comments || []).filter(c => c.taskId === taskId);
+  const list = document.getElementById('td-comments-list');
+  
+  if (comments.length === 0) {
+    list.innerHTML = '<div style="color:var(--text3); font-size:13px; text-align:center; padding:10px;">目前尚無留言</div>';
+    return;
+  }
+
+  list.innerHTML = comments.map(c => {
+    const author = c.authorId || '系統/匿名';
+    const initial = author[0].toUpperCase();
+    const date = new Date(c.createdAt).toLocaleString('zh-TW', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+    return `
+      <div class="comment-item">
+        <div class="comment-avatar">${initial}</div>
+        <div class="comment-content-wrap">
+          <div class="comment-meta"><span class="author">${escHtml(author)}</span><span>${date}</span></div>
+          <div class="comment-text">${escHtml(c.content)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// 儲存任務變更
+async function saveTaskDetails() {
+  const btn = document.querySelector('#modal-task-detail .btn-primary');
+  btn.textContent = '儲存中...';
+  
+  const dataPayload = {
+    id: document.getElementById('td-task-id').value,
+    title: document.getElementById('td-title').value.trim(),
+    description: document.getElementById('td-desc').value.trim(),
+    status: document.getElementById('td-status').value,
+    assignee: document.getElementById('td-assignee').value,
+    priority: document.getElementById('td-priority').value,
+    dueDate: document.getElementById('td-due').value,
+    updatedAt: new Date().toISOString()
+  };
+
+  try {
+    const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'updateTask', data: dataPayload }) });
+    if (res.ok) {
+      await loadData();
+      closeModal('modal-task-detail');
+    }
+  } catch (err) {
+    alert('儲存失敗');
+  } finally {
+    btn.textContent = '儲存變更';
+  }
+}
+
+// 新增留言
+async function submitComment() {
+  const input = document.getElementById('td-new-comment');
+  const content = input.value.trim();
+  if (!content) return;
+  
+  const taskId = document.getElementById('td-task-id').value;
+  // 這裡的 author 為了方便，先預設取發言者名稱，實務上可讓使用者在網頁端登入或選擇身分
+  const authorName = prompt("請輸入您的稱呼 (用於顯示留言者)：", "團隊成員"); 
+  if (!authorName) return;
+
+  input.value = '傳送中...';
+  input.disabled = true;
+
+  const payload = {
+    id: generateId(),
+    taskId: taskId,
+    authorId: authorName,
+    content: content,
+    createdAt: new Date().toISOString()
+  };
+
+  try {
+    const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'addComment', data: payload }) });
+    if (res.ok) {
+      await loadData(); // 重新拉取資料
+      renderComments(taskId); // 重新繪製留言區
+      input.value = '';
+    }
+  } catch (err) {
+    alert('留言失敗');
+    input.value = content;
+  } finally {
+    input.disabled = false;
+  }
 }
 
 // 頁面切換
