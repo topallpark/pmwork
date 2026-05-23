@@ -152,7 +152,7 @@
     .loading-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px; color: var(--text2); gap: 16px; }
     .spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .admin-only { display: none; } /* 用來隱藏非管理員功能的 class */
+    
   </style>
 </head>
 <body>
@@ -437,7 +437,8 @@ function logout() {
   location.reload(); // 重新整理回到登入畫面
 }
 
-// 2. 權限介面控制 (RBAC)
+
+// 2. 權限介面控制 (RBAC) - 修復版
 function applyRoleUI() {
   if (!currentUser) return;
   
@@ -449,7 +450,11 @@ function applyRoleUI() {
   // 根據角色隱藏或顯示特定元件
   const adminEls = document.querySelectorAll('.admin-only');
   adminEls.forEach(el => {
-    el.style.display = (currentUser.role === 'admin') ? '' : 'none';
+    if (currentUser.role === 'admin') {
+      el.style.display = ''; // 管理員：正常顯示所有管理按鈕與圖表
+    } else {
+      el.style.display = 'none'; // 一般成員：強制隱藏這些按鈕
+    }
   });
 }
 
